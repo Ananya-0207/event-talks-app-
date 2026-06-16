@@ -3,6 +3,7 @@ let releasesData = [];
 let activeFilter = 'all';
 let searchQuery = '';
 let selectedUpdateId = null;
+let activeSelectedUpdate = null; // reference to selected update object
 
 // DOM Elements
 const refreshBtn = document.getElementById('refresh-btn');
@@ -20,7 +21,7 @@ const errorMessage = document.getElementById('error-message');
 const emptyState = document.getElementById('empty-state');
 const retryBtn = document.getElementById('retry-btn');
 
-// Composer elements
+// Composer & Comments elements
 const composerEmptyState = document.getElementById('composer-empty-state');
 const composerCard = document.getElementById('composer-card');
 const selectedTypeBadge = document.getElementById('selected-type-badge');
@@ -31,6 +32,11 @@ const charCountNum = document.getElementById('char-count-num');
 const progressBar = document.getElementById('progress-bar');
 const charValidationMsg = document.getElementById('char-validation-msg');
 const tweetBtn = document.getElementById('tweet-btn');
+
+const commentForm = document.getElementById('comment-form');
+const commentAuthorInput = document.getElementById('comment-author');
+const commentTextInput = document.getElementById('comment-text');
+const submitCommentBtn = document.getElementById('submit-comment-btn');
 
 // Circular Progress Ring calculations
 const ringRadius = 14;
@@ -68,6 +74,7 @@ function setupEventListeners() {
     
     composerText.addEventListener('input', updateCharCount);
     
+    // Tweet sharing action
     tweetBtn.addEventListener('click', () => {
         const text = composerText.value.trim();
         if (text.length === 0) return;
@@ -80,6 +87,63 @@ function setupEventListeners() {
         
         const twitterIntentUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
         window.open(twitterIntentUrl, '_blank', 'noopener,noreferrer');
+    });
+
+    // Discussion / Comments form submission
+    commentForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const author = commentAuthorInput.value.trim();
+        const text = commentTextInput.value.trim();
+        
+        if (!activeSelectedUpdate || !author || !text) return;
+        
+        submitCommentBtn.disabled = true;
+        
+        try {
+            const response = await fetch('/api/comments', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    updateId: activeSelectedUpdate.id,
+                    author,
+                    text
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Server returned status ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Update in-memory model
+                activeSelectedUpdate.comments = data.comments;
+                
+                // Update in global releasesData reference
+                releasesData.forEach(entry => {
+                    entry.updates.forEach(u => {
+                        if (u.id === activeSelectedUpdate.id) {
+                            u.comments = data.comments;
+                        }
+                    });
+                });
+                
+                // Re-render comments
+                renderComments(data.comments);
+                commentTextInput.value = '';
+            } else {
+                throw new Error(data.message || 'Unknown backend error');
+            }
+        } catch (err) {
+            console.error('Error posting comment:', err);
+            alert('Could not submit comment: ' + err.message);
+        } finally {
+            submitCommentBtn.disabled = false;
+        }
     });
 }
 
@@ -108,6 +172,22 @@ async function fetchReleases() {
         if (data.status === 'success') {
             releasesData = data.entries;
             renderFeed();
+            
+            // Re-select previously active update if it still exists in the fetched list
+            if (selectedUpdateId) {
+                let found = false;
+                for (const entry of releasesData) {
+                    const match = entry.updates.find(u => u.id === selectedUpdateId);
+                    if (match) {
+                        selectUpdate(match, entry.title, entry.link);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    resetComposer();
+                }
+            }
             
             statusText.textContent = 'Updated';
             pulseDot.style.backgroundColor = '#10b981';
@@ -196,31 +276,36 @@ function createEntryCard(entry, updates) {
     const updatesContainer = document.createElement('div');
     updatesContainer.className = 'release-updates';
     
-    updates.forEach((update, index) => {
-        const updateId = `${entry.id}_${index}`;
+    updates.forEach(update => {
         const updateEl = document.createElement('div');
         updateEl.className = 'update-item';
-        if (selectedUpdateId === updateId) {
+        if (selectedUpdateId === update.id) {
             updateEl.classList.add('selected');
         }
         
         const typeClass = getBadgeClass(update.type);
+        const commentCountBadge = update.comments && update.comments.length > 0 
+            ? `<span class="count-badge" style="margin-left: 0.5rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59,130,246,0.3); font-weight: 700;">${update.comments.length} note${update.comments.length !== 1 ? 's' : ''}</span>`
+            : '';
         
         updateEl.innerHTML = `
             <div class="update-meta">
-                <span class="type-badge ${typeClass}">${update.type}</span>
+                <div style="display: flex; align-items: center;">
+                    <span class="type-badge ${typeClass}">${update.type}</span>
+                    ${commentCountBadge}
+                </div>
                 <span class="select-hint">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"></path>
                     </svg>
-                    <span>Click to draft Tweet</span>
+                    <span>Click to open</span>
                 </span>
             </div>
             <div class="update-content">${update.content}</div>
         `;
         
         updateEl.addEventListener('click', () => {
-            selectUpdate(updateId, update, entry.title, entry.link);
+            selectUpdate(update, entry.title, entry.link);
         });
         
         updatesContainer.appendChild(updateEl);
@@ -230,24 +315,23 @@ function createEntryCard(entry, updates) {
     return card;
 }
 
-// Select update card and populate composer
-function selectUpdate(id, update, date, link) {
-    selectedUpdateId = id;
+// Select update card and populate composer & comments
+function selectUpdate(update, date, link) {
+    selectedUpdateId = update.id;
+    activeSelectedUpdate = update;
     
     // Toggle highlight class in feed
     document.querySelectorAll('.update-item').forEach(el => el.classList.remove('selected'));
     
     // Find active element in feed and select it
-    // Wait for render to finish or do it dynamically
     const items = document.querySelectorAll('.update-item');
     items.forEach(item => {
-        // If content matches (as IDs are regenerated on render)
         if (item.querySelector('.update-content').innerHTML === update.content) {
             item.classList.add('selected');
         }
     });
     
-    // Activate Composer
+    // Activate Composer & Discussion
     composerEmptyState.classList.add('hidden');
     composerCard.classList.remove('hidden');
     
@@ -258,7 +342,6 @@ function selectUpdate(id, update, date, link) {
     selectedSummaryPreview.textContent = update.text;
     
     // Draft tweet structure
-    const hashtags = "#GoogleCloud #BigQuery";
     const header = `📢 ${update.type} in #BigQuery Release Notes (${date}):\n\n`;
     const footer = `\n\nRead more: ${link}`;
     
@@ -275,18 +358,61 @@ function selectUpdate(id, update, date, link) {
     
     composerText.value = `${header}"${cleanText}"${footer}`;
     updateCharCount();
+    
+    // Render comments
+    renderComments(update.comments);
+}
+
+// Render comments list in sidebar
+function renderComments(comments) {
+    const list = document.getElementById('comments-list');
+    list.innerHTML = '';
+    
+    if (!comments || comments.length === 0) {
+        list.innerHTML = '<p class="no-comments-msg">No comments yet. Be the first to start the talk!</p>';
+        return;
+    }
+    
+    comments.forEach(comment => {
+        const item = document.createElement('div');
+        item.className = 'comment-item';
+        
+        // Format timestamp
+        const timeObj = new Date(comment.timestamp);
+        const timeStr = timeObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateStr = timeObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        const displayTime = `${timeStr} ${dateStr}`;
+        
+        item.innerHTML = `
+            <div class="comment-header">
+                <span class="comment-author">${escapeHTML(comment.author)}</span>
+                <span class="comment-timestamp">${displayTime}</span>
+            </div>
+            <div class="comment-body">${escapeHTML(comment.text)}</div>
+        `;
+        list.appendChild(item);
+    });
+    
+    // Scroll list to bottom
+    list.scrollTop = list.scrollHeight;
+}
+
+// Reset composer state if selected update disappears
+function resetComposer() {
+    selectedUpdateId = null;
+    activeSelectedUpdate = null;
+    composerEmptyState.classList.remove('hidden');
+    composerCard.classList.add('hidden');
 }
 
 // Calculate length taking into account Twitter URL shortener (always 23 chars)
 function calculateTwitterLength(text) {
-    // Regex for matching URLs
     const urlRegex = /https?:\/\/[^\s$.?#].[^\s]*/gi;
     let length = text.length;
     
     const matches = text.match(urlRegex);
     if (matches) {
         matches.forEach(url => {
-            // Deduct original URL length and add 23 characters
             length = length - url.length + 23;
         });
     }
@@ -301,12 +427,10 @@ function updateCharCount() {
     
     charCountNum.textContent = charsRemaining;
     
-    // Calculate progress percentage
     const percent = Math.min((twitterLength / 280) * 100, 100);
     const offset = ringCircumference - (percent / 100) * ringCircumference;
     progressBar.style.strokeDashoffset = offset;
     
-    // Color indicator classes
     charCountNum.className = 'char-count-num';
     progressBar.style.stroke = 'var(--accent-primary)';
     charValidationMsg.textContent = '';
@@ -337,4 +461,14 @@ function getBadgeClass(type) {
     if (t.includes('change')) return 'type-change';
     if (t.includes('deprecat')) return 'type-deprecation';
     return 'type-general';
+}
+
+// Helper: Escape HTML string to prevent XSS
+function escapeHTML(str) {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }

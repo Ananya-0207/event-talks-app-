@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="An interactive web application to browse, filter, and tweet the latest Google Cloud BigQuery release notes and features in real-time.">
+    <meta name="description" content="An interactive web application to browse, filter, comment, and tweet the latest Google Cloud BigQuery release notes and features in real-time.">
     <title>BigQuery Release Pulse - Interactive Feed & Tweet Composer</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Main Style -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div class="bg-glow"></div>
@@ -116,7 +116,7 @@
             <aside class="composer-sidebar">
                 <div class="composer-sticky">
                     <div class="sidebar-header">
-                        <h2 class="section-title">Tweet Composer</h2>
+                        <h2 class="section-title">Control Center</h2>
                     </div>
                     
                     <!-- Composer Empty / Not Selected State -->
@@ -127,7 +127,7 @@
                             </svg>
                         </div>
                         <h3>No Update Selected</h3>
-                        <p>Click on any feature, issue, or general update in the feed to customize and share it on Twitter / X.</p>
+                        <p>Click on any feature, issue, or general update in the feed to customize/tweet it or add internal notes.</p>
                     </div>
 
                     <!-- Composer Active State -->
@@ -140,29 +140,53 @@
                             <p id="selected-summary-preview" class="selected-text-preview"></p>
                         </div>
 
-                        <div class="form-group">
-                            <label for="composer-text" class="form-label">Draft Tweet</label>
-                            <textarea id="composer-text" rows="6" class="composer-textarea" aria-label="Compose tweet content" placeholder="Customize your tweet here..."></textarea>
+                        <!-- Tweet Section -->
+                        <div class="composer-sub-section">
+                            <div class="form-group">
+                                <label for="composer-text" class="form-label">Draft Tweet</label>
+                                <textarea id="composer-text" rows="5" class="composer-textarea" aria-label="Compose tweet content" placeholder="Customize your tweet here..."></textarea>
+                            </div>
+
+                            <div class="composer-footer">
+                                <div class="char-counter-container">
+                                    <div class="progress-ring-container">
+                                        <svg class="progress-ring" width="36" height="36">
+                                            <circle class="progress-ring-bg" stroke="rgba(255,255,255,0.05)" stroke-width="3" fill="transparent" r="14" cx="18" cy="18"/>
+                                            <circle id="progress-bar" class="progress-ring-bar" stroke="var(--accent-primary)" stroke-width="3" fill="transparent" r="14" cx="18" cy="18"/>
+                                        </svg>
+                                        <span id="char-count-num" class="char-count-num">280</span>
+                                    </div>
+                                    <span id="char-validation-msg" class="validation-msg"></span>
+                                </div>
+                                
+                                <button id="tweet-btn" class="btn btn-tweet">
+                                    <svg class="tweet-icon" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                                    </svg>
+                                    <span>Tweet This</span>
+                                </button>
+                            </div>
                         </div>
 
-                        <div class="composer-footer">
-                            <div class="char-counter-container">
-                                <div class="progress-ring-container">
-                                    <svg class="progress-ring" width="36" height="36">
-                                        <circle class="progress-ring-bg" stroke="rgba(255,255,255,0.05)" stroke-width="3" fill="transparent" r="14" cx="18" cy="18"/>
-                                        <circle id="progress-bar" class="progress-ring-bar" stroke="var(--accent-primary)" stroke-width="3" fill="transparent" r="14" cx="18" cy="18"/>
-                                    </svg>
-                                    <span id="char-count-num" class="char-count-num">280</span>
-                                </div>
-                                <span id="char-validation-msg" class="validation-msg"></span>
+                        <!-- Local Comments (Talks) Section -->
+                        <div class="discussion-section">
+                            <label class="form-label">Discussion & Notes (talks.json)</label>
+                            
+                            <!-- Comment List Container -->
+                            <div id="comments-list" class="comments-list">
+                                <p class="no-comments-msg">No comments yet. Be the first to start the talk!</p>
                             </div>
                             
-                            <button id="tweet-btn" class="btn btn-tweet">
-                                <svg class="tweet-icon" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                                </svg>
-                                <span>Tweet This</span>
-                            </button>
+                            <!-- Comment Input Form -->
+                            <form id="comment-form" class="comment-form">
+                                <input type="text" id="comment-author" placeholder="Your Name" required class="comment-input-author">
+                                <div class="comment-input-row">
+                                    <input type="text" id="comment-text" placeholder="Add a comment or internal note..." required class="comment-input-text">
+                                    <button type="submit" id="submit-comment-btn" class="btn btn-primary btn-add-comment">
+                                        <span>Add</span>
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -172,10 +196,10 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-        <p>&copy; 2026 BigQuery Release Pulse. Built with Flask, HTML5, Vanilla CSS & JS.</p>
+        <p>&copy; 2026 BigQuery Release Pulse. Built with Node.js, Express, HTML5, Vanilla CSS & JS.</p>
     </footer>
 
     <!-- Main JavaScript -->
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script src="/script.js"></script>
 </body>
 </html>
